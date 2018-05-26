@@ -1,0 +1,16 @@
+service: scrape-realtime-bus-locations
+
+provider:
+  name: aws
+  runtime: python3.6
+  region: us-west-2
+  environment: ${file(env.yml)}
+
+functions:
+  scrape_locations:
+    handler: handler.scrape_locations
+    events:
+      - schedule: rate(1 minute)
+
+plugins:
+  - serverless-python-requirements
