@@ -1,3 +1,4 @@
 .serverless
+data/
 env.yml
 node_modules/
