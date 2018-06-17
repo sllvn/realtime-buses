@@ -43,13 +43,15 @@ def apply_find_closest_stop_id(partition_df, stops_df, stop_times_df):
 
 
 def load_location_data_for_date(date_string):
-    print('loading locations')
     filenames = [f for f in listdir('./data') if isfile(join('./data', f))]
     filenames = [f for f in filenames if re.search(date_string, f)]
     locations_df = load_locations_from_files(filenames)
     locations_df.dropna(subset=['trip_id'], inplace=True)
+    tqdm.pandas(desc='casting trip_id to numeric')
     locations_df['trip_id'] = locations_df['trip_id'].progress_apply(pd.to_numeric)
+    tqdm.pandas(desc='casting vehicle_id to numeric')
     locations_df['vehicle_id'] = locations_df['vehicle_id'].progress_apply(pd.to_numeric)
+    tqdm.pandas()
 
     return locations_df
 
@@ -66,11 +68,11 @@ def transform_locations(locations_df, gtfs_dfs, parallelize=True):
         current_time = datetime.now().isoformat()
         print(f'beginning parallel transforms, this might take a while... (started at {current_time})')
         ddata = dd.from_pandas(locations_df, npartitions=NUMBER_OF_CORES)
-        closest_stop_ids = ddata.map_partitions(lambda loc: apply_find_closest_stop_id(loc, stops_df, stop_times_df)).compute(get=get)
+        locations_df['closest_stop_id'] = ddata.map_partitions(lambda loc: apply_find_closest_stop_id(loc, stops_df, stop_times_df)).compute(get=get)
     else:
-        closest_stop_ids = locations_df.progress_apply(lambda loc: find_closest_stop_id(loc, stops_df, stop_times_df), axis=1)
+        locations_df['closest_stop_id'] = locations_df.progress_apply(lambda loc: find_closest_stop_id(loc, stops_df, stop_times_df), axis=1)
 
-    locations_df['closest_stop_ids'] = closest_stop_ids
+    locations_df['closest_stop_id'] = locations_df['closest_stop_id'].fillna(0.0).astype(int)
 
     return locations_df
 
@@ -82,33 +84,37 @@ def load_gtfs(reload=False, filename='./gtfs.h5'):
         print('loading trips')
         trips_df = read_gtfs_into_df('trips')
         trip_route_lookup = trips_df[['trip_id', 'route_id']]
-        trip_route_lookup['trip_id'] = trip_route_lookup['trip_id'].progress_apply(pd.to_numeric)
-        trip_route_lookup['route_id'] = trip_route_lookup['route_id'].progress_apply(pd.to_numeric)
 
         print('loading stops')
         stops_df = read_gtfs_into_df('stops')
-        stops_df['stop_id'] = stops_df['stop_id'].progress_apply(pd.to_numeric)
 
         print('loading stop_times')
         stop_times_df = read_gtfs_into_df('stop_times')
-        stop_times_df['trip_id'] = stop_times_df['trip_id'].progress_apply(pd.to_numeric)
-        stop_times_df['stop_id'] = stop_times_df['stop_id'].progress_apply(pd.to_numeric)
+        
+        print('loading routes')
+        routes_df = read_gtfs_into_df('routes')
 
         store['trip_route_lookup'] = trip_route_lookup
-        store['stops_df'] = stops_df
-        store['stop_times_df'] = stop_times_df
+        store['stops'] = stops_df
+        store['stop_times'] = stop_times_df
+        store['trips'] = trips_df
+        store['routes'] = routes_df
     else:
         print('loading gtfs from store')
         trip_route_lookup = store['trip_route_lookup']
         stops_df = store['stops_df']
         stop_times_df = store['stop_times_df']
+        trips_df = store['trips']
+        routes_df = store['routes']
 
     store.close()
 
     return {
         'trip_route_lookup': trip_route_lookup,
-        'stops_df': stops_df,
-        'stop_times_df': stop_times_df
+        'stops': stops_df,
+        'stop_times': stop_times_df,
+        'trips': trips_df,
+        'routes': routes_df
     }
 
 

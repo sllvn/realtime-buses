@@ -2,19 +2,14 @@ import re, csv, json
 import pandas as pd
 from datetime import datetime
 from tqdm import tqdm
+import pickle
+from shapely.geometry import Point
+from shapely.ops import nearest_points
+
 
 
 def read_gtfs_into_df(filename):
-    with open(f'./seattle-gtfs-20180511/{filename}.txt', 'r+') as csvfile:
-        reader = csv.reader(csvfile)
-        headers = next(reader)
-        rows = []
-        for line in reader:
-            row = {}
-            for h, v in zip(headers, line):
-                row[h] = v
-            rows.append(row)
-    return pd.DataFrame(rows)
+    return pd.read_csv(f'./seattle-gtfs-20180511/{filename}.txt')
 
 
 raw_id_re = re.compile('[0-9]_([0-9]*)')
@@ -52,7 +47,7 @@ def parse_location(location):
 def load_locations_from_files(filenames):
     locations = []
 
-    for filename in tqdm(filenames):
+    for filename in tqdm(filenames, desc='loading locations from files'):
         with open(f'data/{filename}', 'r') as f:
             json_locations = json.loads(f.read())
 
@@ -71,3 +66,43 @@ def load_locations_from_files(filenames):
                     print(e)
 
     return pd.DataFrame(locations)
+
+
+def make_find_closest(trip_geometries, stops_df):
+    def process(loc):
+        point = Point(loc['lng'], loc['lat'])
+
+        try:
+            trip_stop_locations = trip_geometries[loc['trip_id']]
+            closest_stop = nearest_points(trip_stop_locations, point)[0]
+            stop_lon, stop_lat = closest_stop.x, closest_stop.y
+            closest_stop = stops_df[(stops_df['stop_lon'] == stop_lon) & (stops_df['stop_lat'] == stop_lat)]
+            return closest_stop['stop_id'].iloc[0]
+        except Exception as e:
+            return None
+    return process
+
+
+def load_trip_geometries(gtfs_dfs, reload=False):
+    # takes ~6 min to reload
+    if reload:
+        trip_geometries = {}
+        crs = {'init': 'epsg:4326'}
+        trip_ids = gtfs_dfs['trips']['trip_id'].unique()
+
+        for trip_id in tqdm(trip_ids, desc='creating trip geometry hash table'):
+            stops_for_trip = get_stops_for_trip(trip_id, gtfs_dfs['stops'], gtfs_dfs['stop_times'])
+            stops_for_trip = stops_for_trip[['stop_id', 'stop_lat', 'stop_lon']]
+            # stops_for_trip['stop_lat'] = stops_for_trip['stop_lat'].apply(pd.to_numeric)
+            # stops_for_trip['stop_lon'] = stops_for_trip['stop_lon'].apply(pd.to_numeric)
+
+            geometry = [Point(xy) for xy in zip(stops_for_trip.stop_lon, stops_for_trip.stop_lat)]
+            stops_for_trip = stops_for_trip.drop(['stop_lon', 'stop_lat'], axis=1)
+            stops_for_trip = gpd.GeoDataFrame(stops_for_trip, crs=crs, geometry=geometry)
+            trip_geometries[trip_id] = stops_for_trip.geometry.unary_union
+
+        pickle.dump(trip_geometries, open('trip_geometries.p', 'wb'))
+    else:
+        trip_geometries = pickle.load(open('trip_geometries.p', 'rb'))
+
+    return trip_geometries
