@@ -1,15 +1,11 @@
 import re, csv, json
 import pandas as pd
+import geopandas as gpd
 from datetime import datetime
 from tqdm import tqdm
 import pickle
 from shapely.geometry import Point
 from shapely.ops import nearest_points
-
-
-
-def read_gtfs_into_df(filename):
-    return pd.read_csv(f'./seattle-gtfs-20180511/{filename}.txt')
 
 
 raw_id_re = re.compile('[0-9]_([0-9]*)')
@@ -40,7 +36,7 @@ def parse_location(location):
         'lng': lng,
         'trip_id': trip_id,
         'vehicle_id': vehicle_id,
-        'location_time':  location_time
+        'time':  location_time
     }
 
 
@@ -48,7 +44,7 @@ def load_locations_from_files(filenames):
     locations = []
 
     for filename in tqdm(filenames, desc='loading locations from files'):
-        with open(f'data/{filename}', 'r') as f:
+        with open(f'data/locations/{filename}', 'r') as f:
             json_locations = json.loads(f.read())
 
             try:
@@ -83,8 +79,15 @@ def make_find_closest(trip_geometries, stops_df):
     return process
 
 
-def load_trip_geometries(gtfs_dfs, reload=False):
+def get_stops_for_trip(trip_id, stops_df, stop_times_df):
+    stop_times_for_trip = stop_times_df[stop_times_df.trip_id == trip_id]
+    stops_for_trip = stops_df[stops_df.stop_id.isin(stop_times_for_trip.stop_id)]
+    return stops_for_trip
+
+
+def load_trip_geometries(gtfs_dfs, reload=False, date=None):
     # takes ~6 min to reload
+    # TODO: update this to auto-reload if pickled version does not exist
     if reload:
         trip_geometries = {}
         crs = {'init': 'epsg:4326'}
@@ -101,8 +104,8 @@ def load_trip_geometries(gtfs_dfs, reload=False):
             stops_for_trip = gpd.GeoDataFrame(stops_for_trip, crs=crs, geometry=geometry)
             trip_geometries[trip_id] = stops_for_trip.geometry.unary_union
 
-        pickle.dump(trip_geometries, open('trip_geometries.p', 'wb'))
+        pickle.dump(trip_geometries, open(f'data/trip_geometries_{date}.p', 'wb'))
     else:
-        trip_geometries = pickle.load(open('trip_geometries.p', 'rb'))
+        trip_geometries = pickle.load(open(f'data/trip_geometries_{date}.p', 'rb'))
 
     return trip_geometries

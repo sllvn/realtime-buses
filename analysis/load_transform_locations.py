@@ -9,17 +9,16 @@ from tqdm import tqdm
 import dask.dataframe as dd
 from dask.multiprocessing import get
 
-from transforms import load_locations_from_files, read_gtfs_into_df
+from transforms import load_locations_from_files
 
-pd.options.mode.chained_assignment = None
 tqdm.pandas()
 
 NUMBER_OF_CORES = 8
 
 
 def get_stops_for_trip(trip_id, stops_df, stop_times_df):
-    stop_times_for_trip = stop_times_df[stop_times_df['trip_id'] == trip_id]
-    stops_for_trip = stops_df[stops_df['stop_id'].isin(stop_times_for_trip['stop_id'])]
+    stop_times_for_trip = stop_times_df[stop_times_df.trip_id == trip_id]
+    stops_for_trip = stops_df[stops_df.stop_id.isin(stop_times_for_trip.stop_id)]
     return stops_for_trip
 
 
@@ -43,12 +42,16 @@ def apply_find_closest_stop_id(partition_df, stops_df, stop_times_df):
 
 
 def load_location_data_for_date(date_string):
-    filenames = [f for f in listdir('./data') if isfile(join('./data', f))]
+    filenames = [f for f in listdir('./data/locations') if isfile(join('./data/locations', f))]
     filenames = [f for f in filenames if re.search(date_string, f)]
+
     locations_df = load_locations_from_files(filenames)
     locations_df.dropna(subset=['trip_id'], inplace=True)
+    locations_df.drop_duplicates(inplace=True)
+
     tqdm.pandas(desc='casting trip_id to numeric')
     locations_df['trip_id'] = locations_df['trip_id'].progress_apply(pd.to_numeric)
+
     tqdm.pandas(desc='casting vehicle_id to numeric')
     locations_df['vehicle_id'] = locations_df['vehicle_id'].progress_apply(pd.to_numeric)
     tqdm.pandas()
@@ -75,58 +78,3 @@ def transform_locations(locations_df, gtfs_dfs, parallelize=True):
     locations_df['closest_stop_id'] = locations_df['closest_stop_id'].fillna(0.0).astype(int)
 
     return locations_df
-
-
-def load_gtfs(reload=False, filename='./gtfs.h5'):
-    store = pd.HDFStore(filename)
-
-    if reload:
-        print('loading trips')
-        trips_df = read_gtfs_into_df('trips')
-        trip_route_lookup = trips_df[['trip_id', 'route_id']]
-
-        print('loading stops')
-        stops_df = read_gtfs_into_df('stops')
-
-        print('loading stop_times')
-        stop_times_df = read_gtfs_into_df('stop_times')
-        
-        print('loading routes')
-        routes_df = read_gtfs_into_df('routes')
-
-        store['trip_route_lookup'] = trip_route_lookup
-        store['stops'] = stops_df
-        store['stop_times'] = stop_times_df
-        store['trips'] = trips_df
-        store['routes'] = routes_df
-    else:
-        print('loading gtfs from store')
-        trip_route_lookup = store['trip_route_lookup']
-        stops_df = store['stops_df']
-        stop_times_df = store['stop_times_df']
-        trips_df = store['trips']
-        routes_df = store['routes']
-
-    store.close()
-
-    return {
-        'trip_route_lookup': trip_route_lookup,
-        'stops': stops_df,
-        'stop_times': stop_times_df,
-        'trips': trips_df,
-        'routes': routes_df
-    }
-
-
-if __name__ == '__main__':
-    date_string = '20180525'
-
-    gtfs_dfs = load_gtfs()
-    locations_df = load_location_data_for_date(date_string)
-    locations_df = transform_locations(locations_df, gtfs_dfs)
-
-    print(f'loaded and transformed {len(locations_df)} locations')
-
-    store = pd.HDFStore(f'./transformed_locations_{date_string}.h5')
-    store['locations'] = locations_df
-    store.close()
