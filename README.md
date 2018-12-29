@@ -2,7 +2,7 @@
 
 Scrapes buses from the OneBusAway API every 1 minute using AWS Lambda and S3. Data to be analyzed at a later time.
 
-### Ideas for explanation
+### Ideas for exploration
 
 1. Join with street widths and show if there's a relationship between # of lanes and arrival time variance
 2. Clustering
