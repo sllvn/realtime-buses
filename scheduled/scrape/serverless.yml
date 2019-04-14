@@ -4,7 +4,8 @@ provider:
   name: aws
   runtime: python3.6
   region: us-west-2
-  timeout: 15
+  timeout: 30
+  memorySize: 512
   environment: ${file(env.yml)}
 
 functions:

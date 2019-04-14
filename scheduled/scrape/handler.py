@@ -17,9 +17,11 @@ s3 = session.resource('s3')
 def scrape_locations(event, context):
     agency_id = 1 # TODO: pull from context
     url = f'http://api.pugetsound.onebusaway.org/api/where/vehicles-for-agency/{agency_id}.json?key={OBA_API_KEY}'
+    print(f'requesting url: {url}')
     res = requests.get(url)
 
     date = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
     key = f'locations_{date}.json'
+    print(f'uploading to {key}')
     s3.Bucket(AWS_CONFIG['S3_BUCKET']).put_object(Key=key, Body=res.text)
     print(f'successfully uploaded to {key}')
